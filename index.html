@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Minos Prime Boss Fight</title>
+  <style>
+    html, body { margin: 0; overflow: hidden; background: black; }
+    canvas { display: block; background: #111; }
+    #endScreen, #titleScreen {
+      font-family: monospace;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: white;
+      font-family: sans-serif;
+      text-align: center;
+      z-index: 1000;
+    }
+    #endScreen {
+      font-family: monospace;
+      font-size: 48px;
+      display: none;
+    }
+    #titleScreen {
+      font-family: monospace;
+      font-size: 36px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      align-items: center;
+    }
+    #startButton {
+      font-family: monospace;
+      font-size: 24px;
+      padding: 10px 20px;
+      cursor: pointer;
+      background: #444;
+      color: white;
+      border: none;
+      border-radius: 8px;
+    }
+    #startButton:hover {
+      background: #666;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+  <div id="titleScreen">
+    <div>🩸 <strong>Minos Prime Boss Fight</strong> 🩸</div>
+    <button id="startButton">Start Game</button>
+  </div>
+  <div id="endScreen"></div>
+    <audio src="music/bg.wav" autoplay loop hidden></audio>
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    canvas.width = innerWidth;
+    canvas.height = innerHeight;
+
+    let gameStarted = false;
+    let keys = {}, bullets = [], screenShake = 0, currentWeapon = 1, shootCooldown = 0, parryWindow = 0;
+    let coinFlip = false, coinResult = false, coinThrown = false;
+    let coin = { x: null, y: null, size: 10, vx: 0, vy: 0 };
+
+    const player = { x: canvas.width / 2, y: canvas.height - 60, size: 20, health: 100, maxHealth: 100, dashCooldown: 0, speed: 10 };
+
+
+    const boss = {
+      x: canvas.width / 2, y: 100, size: 60,
+      health: 3000, maxHealth: 3000,
+      state: 'idle', attackCooldown: 180, slamCharge: 0,
+      stunned: 0, speed: 2,
+      teleporting: false, teleportTimer: 0, projectileCooldown: 0
+    };
+
+    document.getElementById('startButton').onclick = () => {
+      document.getElementById('titleScreen').style.display = 'none';
+      gameStarted = true;
+      gameLoop();
+    };
+
+    addEventListener('keydown', e => {
+      keys[e.key.toLowerCase()] = true;
+      if ('12345'.includes(e.key)) currentWeapon = parseInt(e.key);
+      if (e.key === '6') currentWeapon = 6;
+    });
+
+    addEventListener('keyup', e => keys[e.key.toLowerCase()] = false);
+
+    addEventListener('mousedown', e => {
+      if (!gameStarted || shootCooldown > 0 || boss.health <= 0 || player.health <= 0) return;
+
+      const angle = Math.atan2(e.clientY - player.y, e.clientX - player.x);
+      const dir = { x: Math.cos(angle), y: Math.sin(angle) };
+
+      switch (currentWeapon) {
+        case 1: bullets.push({ x: player.x, y: player.y, vx: dir.x * 10, vy: dir.y * 10, size: 5, damage: 10 }); shootCooldown = 10; break;
+        case 2: bullets.push({ x: player.x, y: player.y, vx: dir.x * 20, vy: dir.y * 20, size: 5, damage: 40 }); shootCooldown = 60; break;
+        case 3: bullets.push({ x: player.x, y: player.y, vx: dir.x * 6, vy: dir.y * 6, size: 8, damage: 30, explode: true }); shootCooldown = 40; break;
+        case 4: bullets.push({ x: player.x, y: player.y, vx: dir.x * 8, vy: dir.y * 8, size: 3, damage: 5 }); shootCooldown = 5; break;
+        case 5:
+          const dx = boss.x - player.x, dy = boss.y - player.y;
+          if (Math.hypot(dx, dy) < boss.size + player.size + 10) {
+            if (boss.state === 'attacking' && parryWindow > 0) {
+              boss.stunned = 60;
+              boss.attackCooldown = 120;
+              screenShake = 10;
+              const missingHP = player.maxHealth - player.health;
+              player.health += Math.floor(missingHP * 0.5);
+              if (player.health > player.maxHealth) player.health = player.maxHealth;
+            } else {
+              boss.health -= 25;
+              screenShake = 5;
+            }
+          }
+          shootCooldown = 30;
+          break;
+        case 6:
+          if (!coinFlip && !coinThrown) {
+            coinFlip = true;
+            coinThrown = true;
+            coinResult = Math.random() < 0.5;
+            coin.x = player.x;
+            coin.y = player.y;
+            coin.vx = Math.random() * 10 - 5;
+            coin.vy = Math.random() * 10 - 5;
+            setTimeout(() => coinFlip = false, 2000);
+          }
+          shootCooldown = 30;
+          break;
+      }
+    });
+
+    function update() {
+      if (!gameStarted) return;
+
+      if (keys['w']) player.y -= player.speed;
+      if (keys['s']) player.y += player.speed;
+      if (keys['a']) player.x -= player.speed;
+      if (keys['d']) player.x += player.speed;
+
+      if (keys[' '] && player.dashCooldown <= 0) {
+        player.x += keys['d'] ? 140 : keys['a'] ? -140 : 0;
+        player.y += keys['s'] ? 140 : keys['w'] ? -140 : 0;
+        player.dashCooldown = 60;
+      }
+      if (player.dashCooldown > 0) player.dashCooldown--;
+
+      if (coinThrown) {
+        coin.x += coin.vx;
+        coin.y += coin.vy;
+        coin.vy += 0.1;
+        if (coin.y > canvas.height - 50) coinThrown = false;
+      }
+
+      if (boss.health > 0 && boss.stunned <= 0) {
+        const dx = player.x - boss.x, dy = player.y - boss.y;
+        const dist = Math.hypot(dx, dy);
+        const angle = Math.atan2(dy, dx);
+
+        if (dist > 80) {
+          boss.x += Math.cos(angle) * boss.speed;
+          boss.y += Math.sin(angle) * boss.speed;
+        }
+
+        boss.attackCooldown--;
+        if (boss.attackCooldown <= 0) {
+          const type = Math.floor(Math.random() * 3);
+          boss.state = 'attacking';
+          boss.attackType = type;
+          boss.attackTimer = 30;
+          boss.attackCooldown = 180;
+          if (type === 0) parryWindow = 20;
+        }
+
+        if (boss.state === 'attacking') {
+          boss.attackTimer--;
+          if (boss.attackTimer === 0) {
+            if (boss.attackType === 0 && dist < 100) {
+              player.health -= 30;
+              screenShake = 10;
+            } else if (boss.attackType === 1) {
+              boss.teleporting = true;
+              boss.teleportTimer = 120;
+              screenShake = 8;
+            } else if (boss.attackType === 2 && dist < 150) {
+              player.health -= 20;
+              screenShake = 6;
+              boss.projectileCooldown = 60;
+            }
+            boss.state = 'idle';
+            parryWindow = 0;
+          }
+        }
+      }
+
+      if (boss.teleporting) {
+        boss.teleportTimer--;
+        if (boss.teleportTimer <= 0) {
+          boss.x = Math.random() * canvas.width;
+          boss.y = Math.random() * canvas.height;
+          boss.teleporting = false;
+          screenShake = 12;
+        }
+      }
+
+      if (coinFlip && shootCooldown === 30 && coinResult) {
+        boss.health -= 50;
+        screenShake = 12;
+        coinFlip = false;
+      }
+
+      bullets.forEach(b => {
+        b.x += b.vx;
+        b.y += b.vy;
+        const dx = b.x - boss.x, dy = b.y - boss.y;
+        if (Math.hypot(dx, dy) < b.size + boss.size) {
+          boss.health -= b.damage;
+          if (b.explode) boss.health -= 20;
+          b.hit = true;
+          screenShake = 4;
+        }
+      });
+
+      bullets = bullets.filter(b => !b.hit && b.x > 0 && b.x < canvas.width && b.y > 0 && b.y < canvas.height);
+
+      if (shootCooldown > 0) shootCooldown--;
+      if (parryWindow > 0) parryWindow--;
+    }
+
+    function drawHealthBars() {
+  ctx.fillStyle = 'white';
+  ctx.fillText("V1 {Player}", 20, 20);  // Changed the player name here
+  ctx.fillStyle = 'cyan';
+  ctx.fillRect(20, 30, player.health * 2, 10);
+
+  ctx.fillStyle = 'white';
+  ctx.fillText("Minos Prime", canvas.width - 220, 20);
+  ctx.fillStyle = 'red';
+  ctx.fillRect(canvas.width - 220, 30, boss.health / boss.maxHealth * 200, 10);
+
+  ctx.fillStyle = 'white';
+  ctx.font = '16px monospace';
+  ctx.fillText("Current Weapon: " + ["", "Pistol", "Railgun", "Rocket", "Nailgun", "Fists", "Coin Flip Gun"][currentWeapon], 20, 60);
+
+  ctx.fillStyle = 'lightgray';
+  const weaponList = [
+    "1: Pistol",
+    "2: Railgun",
+    "3: Rocket",
+    "4: Nailgun",
+    "5: Fists (Parry)",
+    "6: Coin Flip Gun"
+  ];
+
+  weaponList.forEach((w, i) => {
+    ctx.fillStyle = (i + 1 === currentWeapon) ? 'yellow' : 'lightgray';
+    ctx.fillText(w, 20, 80 + i * 20);
+  });
+
+  if (currentWeapon === 5 && parryWindow > 0) {
+    ctx.fillStyle = 'yellow';
+    ctx.fillText("Parry!", canvas.width / 2 - 30, 50);
+  }
+}
+
+    function draw() {
+      ctx.save();
+      if (screenShake > 0) {
+        ctx.translate((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10);
+        screenShake--;
+      }
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = 'cyan';
+      ctx.beginPath();
+      ctx.arc(player.x, player.y, player.size, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = boss.stunned > 0 ? 'gray' : 'crimson';
+      ctx.beginPath();
+      ctx.arc(boss.x, boss.y, boss.size, 0, Math.PI * 2);
+      ctx.fill();
+
+      bullets.forEach(b => {
+        ctx.fillStyle = b.explode ? 'orange' : 'yellow';
+        ctx.beginPath();
+        ctx.arc(b.x, b.y, b.size, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      if (coinThrown) {
+        ctx.fillStyle = coinResult ? 'gold' : 'silver';
+        ctx.beginPath();
+        ctx.arc(coin.x, coin.y, coin.size, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      drawHealthBars();
+
+      if (player.health <= 0) {
+        document.getElementById("endScreen").innerText = "YOU DIED";
+        document.getElementById("endScreen").style.display = "block";
+      }
+
+      if (boss.health <= 0) {
+        document.getElementById("endScreen").innerText = "VICTORY";
+        document.getElementById("endScreen").style.display = "block";
+      }
+
+      ctx.restore();
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      if (gameStarted) requestAnimationFrame(gameLoop);
+    }
+
+    ctx.font = '16px monospace';
+  </script>
+</body>
+</html>
