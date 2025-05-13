@@ -1,1 +1,1 @@
-# ULTRAKILL-Lite
+# Download as Zip and run index.html. Thanks my friend Jack for the game idea. Music was also made by Jack on Chrome Music Lab. 
